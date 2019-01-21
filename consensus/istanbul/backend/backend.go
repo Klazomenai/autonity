@@ -96,6 +96,10 @@ type backend struct {
 
 	recentMessages *lru.ARCCache // the cache of peer's messages
 	knownMessages  *lru.ARCCache // the cache of self messages
+
+	// Validator governance
+	deployer     common.Address // Ethereum address of the soma contract deployer
+	somaContract common.Address // Ethereum address of the governance contract
 }
 
 // Address implements istanbul.Backend.Address

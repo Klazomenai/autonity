@@ -23,6 +23,7 @@ const (
 	Sticky
 )
 
+// TODO: Determine how and where to set the config properly, so you have the right configs all the time.
 type Config struct {
 	RequestTimeout uint64         `toml:",omitempty"` // The timeout for each Istanbul round in milliseconds.
 	BlockPeriod    uint64         `toml:",omitempty"` // Default minimum difference between two consecutive block's timestamps in second

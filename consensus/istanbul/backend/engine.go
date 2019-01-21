@@ -173,6 +173,12 @@ func (sb *backend) verifyCascadingFields(chain consensus.ChainReader, header *ty
 		return errInvalidTimestamp
 	}
 
+	// Check if the parent's state root is in the current header's DB, if not, ask for a pruned trie
+	if value, err := state.NewDatabase(sb.db).TrieDB().Node(parent.Root); value == nil || err != nil {
+		log.Info("verifyCascadingFields()", "no state root found in db", parent.Root, "Block", number)
+	}
+
+	// TODO: Remove if not required or change accordingly
 	// Verify validators in extraData. Validators in snapshot and extraData should be the same.
 	snap, err := sb.snapshot(chain, number-1, header.ParentHash, parents)
 	if err != nil {
@@ -236,6 +242,7 @@ func (sb *backend) VerifyUncles(chain consensus.ChainReader, block *types.Block)
 
 // verifySigner checks whether the signer is in parent's validator set
 func (sb *backend) verifySigner(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
+	// TODO: check the signer is in the validator set from the smart contract
 	// Verifying the genesis block is not supported
 	number := header.Number.Uint64()
 	if number == 0 {

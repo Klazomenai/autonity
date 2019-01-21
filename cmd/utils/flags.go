@@ -1433,6 +1433,7 @@ func MakeChain(ctx *cli.Context, stack *node.Node) (chain *core.BlockChain, chai
 		Fatalf("%v", err)
 	}
 	var engine consensus.Engine
+	// TODO: Need to add Istanbul when config.Istanbul != nil, particularly, we need to figure out how to get the NodeKey
 	if config.Clique != nil {
 		engine = clique.New(config.Clique, chainDb)
 	} else {

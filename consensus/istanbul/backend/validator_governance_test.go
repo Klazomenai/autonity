@@ -116,7 +116,7 @@ func TestStateDBChanges(t *testing.T) {
 		Difficulty:  new(big.Int).SetUint64(0x0100),
 		GasPrice:    new(big.Int).SetUint64(0x3b9aca00),
 	}
-	chainConfig := params.AllSomaProtocolChanges
+	chainConfig := params.AllIstanbulProtocolChanges
 	vmconfig := vm.Config{}
 	/*
 		type Config struct {

@@ -57,7 +57,7 @@ func getEVM(chain consensus.ChainReader, header *types.Header, coinbase, origin 
 		Difficulty:  header.Difficulty,
 		GasPrice:    gasPrice,
 	}
-	chainConfig := params.AllSomaProtocolChanges
+	chainConfig := params.AllIstanbulProtocolChanges
 	vmconfig := vm.Config{}
 	evm := vm.NewEVM(evmContext, statedb, chainConfig, vmconfig)
 	return evm
@@ -75,18 +75,18 @@ func deployContract(chain consensus.ChainReader, bytecodeStr string, userAddr co
 	gas := uint64(0xFFFFFFFF)
 	value := new(big.Int).SetUint64(0x00)
 
-	// Deploy the Soma validator governance contract
+	// Deploy the Istanbul validator governance contract
 	_, contractAddress, gas, vmerr := evm.Create(sender, data, gas, value)
 
 	if vmerr != nil {
 		return contractAddress, vmerr
 	}
-	log.Info("Deployed Soma Governance Contract", "Address", contractAddress.String())
+	log.Info("Deployed Istanbul Governance Contract", "Address", contractAddress.String())
 
 	return contractAddress, nil
 }
 
-// contractCallAddress queries the Soma contract, for any functions that take and address as argument.
+// contractCallAddress queries the Istanbul contract, for any functions that take and address as argument.
 // Returns true/false if the the address is an active validator and false if not.
 func contractCallAddress(functionSig string, chain consensus.ChainReader, userAddr common.Address, contractAddress common.Address, header *types.Header, db ethdb.Database) (bool, error) {
 	// Instantiate new state database
@@ -131,7 +131,7 @@ func contractCallAddress(functionSig string, chain consensus.ChainReader, userAd
 
 // callContractDifficulty calls contract to find the difficulty for a specific validator returns an int either 1 or 2
 func callContractDifficulty(chain consensus.ChainReader, userAddr common.Address, contractAddress common.Address, header *types.Header, db ethdb.Database) (*big.Int, error) {
-	// Signature of function being called defined by Soma interface
+	// Signature of function being called defined by Istanbul interface
 	functionSig := "calculateDifficulty(address)"
 
 	// Instantiate new state database
@@ -172,7 +172,7 @@ func callContractDifficulty(chain consensus.ChainReader, userAddr common.Address
 
 // updateGovernance when a validator attempts to submit a block the
 func updateGovernance(chain consensus.ChainReader, userAddr common.Address, contractAddress common.Address, header *types.Header, statedb *state.StateDB) error {
-	// Signature of function being called defined by Soma interface
+	// Signature of function being called defined by Istanbul interface
 	functionSig := "UpdateGovernance()"
 
 	sender := vm.AccountRef(userAddr)
@@ -217,22 +217,4 @@ func contractCall(functionSig string, chain consensus.ChainReader, userAddr comm
 	}
 
 	return ret, nil
-}
-
-// CalcDifficulty is the difficulty adjustment algorithm. It returns the difficulty
-// that a new block should have based on the previous blocks in the chain and the
-// current signer.
-func calcDifficulty(chain consensus.ChainReader, parent *types.Header, soma *Soma) *big.Int {
-	if parent.Number.Uint64() == 1 {
-		if soma.config.Deployer == soma.signer {
-			return new(big.Int).Set(diffInTurn)
-		}
-		return new(big.Int).Set(diffNoTurn)
-	} else {
-		result, _ := callContractDifficulty(chain, soma.signer, soma.somaContract, parent, soma.db)
-		if result.Uint64() == 2 {
-			return new(big.Int).Set(diffInTurn)
-		}
-		return new(big.Int).Set(diffNoTurn)
-	}
 }

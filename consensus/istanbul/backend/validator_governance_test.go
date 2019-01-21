@@ -1,4 +1,4 @@
-package validator_governance_test
+package backend
 
 import (
 	"encoding/hex"

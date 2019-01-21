@@ -1,4 +1,4 @@
-package validator_governance
+package backend
 
 import (
 	"math/big"

@@ -19,6 +19,7 @@ package backend
 import (
 	"bytes"
 	"errors"
+	"github.com/ethereum/go-ethereum/crypto"
 	"math/big"
 	"math/rand"
 	"time"
@@ -242,7 +243,6 @@ func (sb *backend) VerifyUncles(chain consensus.ChainReader, block *types.Block)
 
 // verifySigner checks whether the signer is in parent's validator set
 func (sb *backend) verifySigner(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
-	// TODO: check the signer is in the validator set from the smart contract
 	// Verifying the genesis block is not supported
 	number := header.Number.Uint64()
 	if number == 0 {
@@ -261,14 +261,49 @@ func (sb *backend) verifySigner(chain consensus.ChainReader, header *types.Heade
 		return err
 	}
 
+	// TODO: Remove if not required or change accordingly
 	// Signer should be in the validator set of previous block's extraData.
 	if _, v := snap.ValSet.GetByAddress(signer); v == nil {
 		return errUnauthorized
 	}
+
+	// Check known validators for seals, smart contract included post block 2
+
+	if number == 1 {
+		if !(sb.config.Deployer == signer) {
+			return errUnauthorized
+		}
+	} else {
+		// Check signer is in validator set
+		result, err := contractCallAddress("Validator()", chain, signer, sb.somaContract, chain.CurrentHeader(), sb.db)
+		if err != nil {
+			return err
+		}
+		if !result {
+			log.Info("Unauthorized Validator")
+			return errUnauthorized
+		}
+
+		// If we're amongst the recent signers, wait for the next block
+		// TODO: Change the contract to have one active validator address
+		result, err = contractCallAddress("RecentValidator(address", chain, signer, sb.somaContract, chain.CurrentHeader(), sb.db)
+		if err != nil {
+			return err
+		}
+		if result {
+			if header.ParentHash != chain.CurrentHeader().Root {
+				return consensus.ErrPrunedAncestor
+			}
+			log.Info("Unauthorised - Validator signed recently")
+			return errUnauthorized
+		}
+	}
+
 	return nil
 }
 
 // verifyCommittedSeals checks whether every committed seal is signed by one of the parent's validators
+// TODO: determine how to incorporate this in to the smart contract
 func (sb *backend) verifyCommittedSeals(chain consensus.ChainReader, header *types.Header, parents []*types.Header) error {
 	number := header.Number.Uint64()
 	// We don't need to verify committed seals in the genesis block
@@ -359,6 +394,11 @@ func (sb *backend) Prepare(chain consensus.ChainReader, header *types.Header) er
 		return err
 	}
 
+	/**
+	TODO:
+	- Need to remove all of this since the voting mechanism has moved to soma contract
+	- Need to call the contract to insure that the the seals are from the validators in the validator set
+	**/
 	// get valid candidate list
 	sb.candidatesLock.RLock()
 	var addresses []common.Address
@@ -403,8 +443,40 @@ func (sb *backend) Prepare(chain consensus.ChainReader, header *types.Header) er
 //
 // Note, the block header and state database might be updated to reflect any
 // consensus rules that happen at finalization (e.g. block rewards).
-func (sb *backend) Finalize(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction,
-	uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
+func (sb *backend) Finalize(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
+
+	// Deploy Soma on-chain governance contract
+	if header.Number.Int64() == 1 {
+		log.Info("Soma Contract Deployer", "Address", sb.config.Deployer)
+		contractAddress, err := deployContract(chain, sb.config.Bytecode, sb.config.Deployer, header, state)
+		if err != nil {
+			return nil, err
+		}
+
+		sb.somaContract = contractAddress
+	} else {
+		// Check if current header's state root is in DB, if not, ask for pruned trie
+		if sb.somaContract == common.HexToAddress("0000000000000000000000000000000000000000") {
+			sb.somaContract = crypto.CreateAddress(sb.config.Deployer, 0)
+		}
+
+		// TODO: This doesn't work for IBFT
+		// If the block has a seal present then the smart contract is updated with that address, otherwise, the current
+		// signer's address is used.
+		//emptyByteVar := make([]byte, 65)
+		//if !bytes.Equal(header.Extra[len(header.Extra)-extraSeal:], emptyByteVar) {
+		//	signer, err := c.Author(header)
+		//	if err != nil {
+		//		return nil, err
+		//	}
+		//	log.Info("Updating Governance External:", "Signer", signer, "Block", header.Number.Int64())
+		//	updateGovernance(chain, signer, c.somaContract, header, statedb)
+		//} else {
+		//	log.Info("Updating Governance Local:", "Signer", c.signer, "Block", header.Number.Int64())
+		//	updateGovernance(chain, c.signer, c.somaContract, header, statedb)
+		//}
+	}
+
 	// No block rewards in Istanbul, so the state remains as is and uncles are dropped
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
 	header.UncleHash = nilUncleHash
@@ -415,14 +487,52 @@ func (sb *backend) Finalize(chain consensus.ChainReader, header *types.Header, s
 
 // Seal generates a new block for the given input block with the local miner's
 // seal place on top.
-// TODO : to be updated for 1.8.19 , make it asynchronous, add the worker resultCh
 func (sb *backend) Seal(chain consensus.ChainReader, block *types.Block, results chan<- *types.Block, stop <-chan struct{}) error {
 	// update the block header timestamp and signature and propose the block to core engine
 	sb.logger.Info("Seal() consensus function called")
 	header := block.Header()
 	number := header.Number.Uint64()
 
+	// resolve the authorization key and check against signers
+	signer, err := ecrecover(header)
+	if err != nil {
+		return err
+	}
+
+	if number == 1 {
+		if !(sb.config.Deployer == signer) {
+			// Note: This error will occur if account is not authorized to mine!
+			log.Info("Account not active validator, wait for others to sign block or use active validator to mine!")
+			<-stop // TODO: think about the implications of this stop, is this going to block?
+			return errUnauthorized
+		}
+	} else {
+		// Check signer is in validator set
+		result, err := contractCallAddress("Validator()", chain, signer, sb.somaContract, chain.CurrentHeader(), sb.db)
+		if err != nil {
+			return err
+		}
+		if !result {
+			return errUnauthorized
+		}
+
+		// If we're amongst the recent signers, wait for the next block
+		// TODO: Change the contract to have one active validator address
+		result, err = contractCallAddress("RecentValidator(address", chain, signer, sb.somaContract, chain.CurrentHeader(), sb.db)
+		if err != nil {
+			return err
+		}
+		if result {
+			// Note: This error will occur if account is not authorized to mine!
+			log.Info("Account not active validator, wait for others to sign block or use active validator to mine!")
+			<-stop // TODO: think about the implications of this stop, is this going to block?
+			return errUnauthorized
+		}
+
+	}
+
 	// Bail out if we're unauthorized to sign a block
+	// // TODO: Remove if not required or change accordingly
 	snap, err := sb.snapshot(chain, number-1, header.ParentHash, nil)
 	if err != nil {
 		sb.logger.Error("Error snapshot ", err, err.Error())
@@ -539,7 +649,7 @@ func (sb *backend) Close() error {
 }
 
 // snapshot retrieves the authorization snapshot at a given point in time.
-// TODO : compare with clique
+// TODO : Remove if not required or change accordingly
 func (sb *backend) snapshot(chain consensus.ChainReader, number uint64, hash common.Hash, parents []*types.Header) (*Snapshot, error) {
 	// Search for a snapshot in memory or on disk for checkpoints
 	var (

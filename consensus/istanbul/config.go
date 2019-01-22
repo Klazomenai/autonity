@@ -16,6 +16,8 @@
 
 package istanbul
 
+import "github.com/ethereum/go-ethereum/common"
+
 type ProposerPolicy uint64
 
 const (
@@ -23,12 +25,13 @@ const (
 	Sticky
 )
 
-// TODO: Determine how and where to set the config properly, so you have the right configs all the time.
 type Config struct {
-	RequestTimeout uint64         `toml:",omitempty"` // The timeout for each Istanbul round in milliseconds.
-	BlockPeriod    uint64         `toml:",omitempty"` // Default minimum difference between two consecutive block's timestamps in second
-	ProposerPolicy ProposerPolicy `toml:",omitempty"` // The policy for proposer selection
-	Epoch          uint64         `toml:",omitempty"` // The number of blocks after which to checkpoint and reset the pending votes
+	RequestTimeout uint64         `toml:",omitempty"`        // The timeout for each Istanbul round in milliseconds.
+	BlockPeriod    uint64         `toml:",omitempty"`        // Default minimum difference between two consecutive block's timestamps in second
+	ProposerPolicy ProposerPolicy `toml:",omitempty"`        // The policy for proposer selection
+	Epoch          uint64         `toml:",omitempty"`        // The number of blocks after which to checkpoint and reset the pending votes
+	Deployer       common.Address `json:"contract-deployer"` // Address of the validator who deploys contract stored in bytecode
+	Bytecode       string         `json:"bytecode"`          // Bytecode of validators contract // would like this type to be []byte but the unmarshalling is not working
 }
 
 var DefaultConfig = &Config{
@@ -36,4 +39,6 @@ var DefaultConfig = &Config{
 	BlockPeriod:    1,
 	ProposerPolicy: RoundRobin,
 	Epoch:          30000,
+	Deployer:       common.Address{},
+	Bytecode:       "",
 }

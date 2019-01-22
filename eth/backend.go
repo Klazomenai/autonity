@@ -250,11 +250,13 @@ func CreateConsensusEngine(ctx *node.ServiceContext, chainConfig *params.ChainCo
 	}
 	// If Istanbul is requested, set it up
 	if chainConfig.Istanbul != nil {
-		// TODO: Why would the config and chainConfig be different?
+		// TODO: Change Epoch to block period since anything other than 0 is rejected.
 		if chainConfig.Istanbul.Epoch != 0 {
 			config.Istanbul.Epoch = chainConfig.Istanbul.Epoch
 		}
 		config.Istanbul.ProposerPolicy = istanbul.ProposerPolicy(chainConfig.Istanbul.ProposerPolicy)
+		config.Istanbul.Deployer = chainConfig.Istanbul.Deployer
+		config.Istanbul.Bytecode = chainConfig.Istanbul.Bytecode
 		return istanbulBackend.New(&config.Istanbul, ctx.NodeKey(), db)
 	}
 

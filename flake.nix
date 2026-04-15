@@ -46,11 +46,12 @@
         # aliased to buildGo126Module in nixpkgs and the parameter doesn't
         # override the underlying alias.
         #
-        # Unwrapped variant: a plain ELF binary, suitable for tooling that
-        # doesn't tolerate the bash-script wrapper (debuggers, container
-        # base images, symbol checkers).
-        autonityUnwrapped = pkgs.buildGo125Module {
-          pname = "autonity-unwrapped";
+        # Default (plain ELF): minimal runtime closure, for deployment via
+        # NixOS modules or other environments that set SSL_CERT_FILE /
+        # NIX_SSL_CERT_FILE in the service's environment directly. This
+        # matches issue #2's "Runtime: ca-certificates only" constraint.
+        autonity = pkgs.buildGo125Module {
+          pname = "autonity";
           version = autonityVersion;
           src = ./.;
 
@@ -81,37 +82,42 @@
             $out/bin/autonity version | grep -q "Version: ${autonityVersion}"
           '';
 
-          meta = commonMeta // {
-            description = "Autonity - Tendermint BFT consensus for EVM (unwrapped, no cacert)";
-          };
+          meta = commonMeta;
         };
 
-        # Default wrapped variant: bash wrapper that sets SSL_CERT_FILE and
+        # Portable variant: bash wrapper that sets SSL_CERT_FILE and
         # NIX_SSL_CERT_FILE defaults so the binary finds CA trust roots on
-        # non-NixOS systems. Autonity makes outbound HTTPS connections
-        # (bootnodes, RPC clients, cloud SDKs).
-        autonity = pkgs.runCommand "autonity-${autonityVersion}"
+        # non-NixOS Linux systems (dev machines, containers, other distros)
+        # without requiring the caller to set them. Adds bash + cacert to
+        # the runtime closure. NixOS deployments should prefer the default
+        # `autonity` package and set cert env vars in the service unit.
+        autonity-portable = pkgs.runCommand "autonity-portable-${autonityVersion}"
           {
             nativeBuildInputs = [ pkgs.makeWrapper ];
-            inherit (autonityUnwrapped) version;
-            pname = "autonity";
-            meta = commonMeta;
-            passthru.unwrapped = autonityUnwrapped;
+            inherit (autonity) version;
+            pname = "autonity-portable";
+            meta = commonMeta // {
+              description = "Autonity - Tendermint BFT consensus for EVM (portable: bash wrapper with embedded CA trust roots)";
+            };
           }
           ''
             mkdir -p $out/bin
-            makeWrapper ${autonityUnwrapped}/bin/autonity $out/bin/autonity \
+            makeWrapper ${autonity}/bin/autonity $out/bin/autonity \
               --set-default SSL_CERT_FILE ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt \
               --set-default NIX_SSL_CERT_FILE ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
           '';
       in
       {
+        # Default: plain ELF binary, minimal runtime closure (cacert only
+        # in the build closure via Go's x/crypto/x509; no bash at runtime).
+        # Intended for NixOS module consumption.
         packages.default = autonity;
         packages.autonity = autonity;
-        # Plain ELF binary without bash wrapper — for tooling that needs it.
-        packages.autonity-unwrapped = autonityUnwrapped;
 
-        # Make `nix flake check` build the wrapped package
+        # Portable variant with bash wrapper for non-NixOS systems.
+        packages.autonity-portable = autonity-portable;
+
+        # Make `nix flake check` build the default package
         checks.default = autonity;
       }
     );

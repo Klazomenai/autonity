@@ -2,7 +2,7 @@
 # with Go source code. If you know what GOPATH is then you probably
 # don't need to bother with make.
 
-.PHONY: autonity contracts android ios autonity-cross evm all test clean lint mock-gen test-fast test-contracts test-contracts-truffle-fast test-contracts-truffle start-autonity start-ganache test-contracts-pre test-contracts-fast generate
+.PHONY: autonity contracts android ios autonity-cross evm all test clean lint mock-gen test-fast test-contracts test-contracts-truffle-fast test-contracts-truffle start-autonity start-ganache test-contracts-pre test-contracts-fast generate test-nix-build test-nix-check
 
 BINDIR = ./build/bin
 GO ?= latest
@@ -288,3 +288,12 @@ release: autonity contracts
 	mkdir -p ./build/release/$(VERSION)
 	cd ./build/bin && tar -czvf ../release/$(VERSION)/autonity-linux-amd64-$(VERSION).tar.gz autonity
 	cd ./params/generated && tar -czvf ../../build/release/$(VERSION)/protocol-contracts-abi-$(VERSION).tar.gz *.abi
+
+# Nix build targets — see flake.nix for the reproducible Nix build.
+# Requires Nix with flakes enabled.
+
+test-nix-build:
+	nix build --print-build-logs
+
+test-nix-check:
+	nix flake check --print-build-logs

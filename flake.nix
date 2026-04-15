@@ -17,9 +17,17 @@
       let
         pkgs = nixpkgs.legacyPackages.${system};
 
-        autonity = pkgs.buildGoModule {
+        autonityVersion = "1.1.2";
+
+        # Pin Go toolchain. go.mod requires Go 1.24.0 minimum. nixpkgs
+        # currently exposes buildGo123Module / buildGo125Module / buildGo126Module
+        # (no _1_24), so we pin to buildGo125Module — the closest available
+        # version that satisfies the go.mod minimum. Note: passing `go = pkgs.go_1_25`
+        # to pkgs.buildGoModule is ineffective because pkgs.buildGoModule is
+        # aliased to buildGo126Module in nixpkgs and the parameter doesn't override it.
+        autonity = pkgs.buildGo125Module {
           pname = "autonity";
-          version = "1.1.2";
+          version = autonityVersion;
           src = ./.;
 
           # Hash of the Go module proxy-vendored dependencies.
@@ -30,8 +38,14 @@
 
           subPackages = [ "cmd/autonity" ];
 
-          # CGO required for embedded libsecp256k1 (crypto/secp256k1)
-          env.CGO_ENABLED = "1";
+          env = {
+            # CGO required for embedded libsecp256k1 (crypto/secp256k1)
+            CGO_ENABLED = "1";
+            # Force the pinned Go version above; without this, Go's auto
+            # toolchain selection can pick a different version present in
+            # the build closure, defeating the point of pinning.
+            GOTOOLCHAIN = "local";
+          };
 
           nativeBuildInputs = with pkgs; [ gcc ];
 
@@ -40,7 +54,7 @@
 
           doInstallCheck = true;
           installCheckPhase = ''
-            $out/bin/autonity version | grep -q "Version: 1.1.2"
+            $out/bin/autonity version | grep -q "Version: ${autonityVersion}"
           '';
 
           meta = with pkgs.lib; {

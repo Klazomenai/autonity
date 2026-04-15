@@ -293,7 +293,7 @@ release: autonity contracts
 # Requires Nix with flakes enabled.
 
 test-nix-build:
-	nix build --print-build-logs
+	nix build .#autonity --print-build-logs
 
 test-nix-check:
-	nix flake check --print-build-logs
+	nix flake check . --print-build-logs

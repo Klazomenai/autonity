@@ -12,7 +12,13 @@
       nixpkgs,
       flake-utils,
     }:
-    flake-utils.lib.eachDefaultSystem (
+    # Restricted to Linux: meta.platforms = platforms.linux below means
+    # builds on Darwin would fail with "unsupported platform". Both x86_64
+    # and aarch64 Linux are supported by Go's CGO toolchain.
+    flake-utils.lib.eachSystem [
+      "x86_64-linux"
+      "aarch64-linux"
+    ] (
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -20,11 +26,13 @@
         autonityVersion = "1.1.2";
 
         # Pin Go toolchain. go.mod requires Go 1.24.0 minimum. nixpkgs
-        # currently exposes buildGo123Module / buildGo125Module / buildGo126Module
-        # (no _1_24), so we pin to buildGo125Module — the closest available
-        # version that satisfies the go.mod minimum. Note: passing `go = pkgs.go_1_25`
-        # to pkgs.buildGoModule is ineffective because pkgs.buildGoModule is
-        # aliased to buildGo126Module in nixpkgs and the parameter doesn't override it.
+        # currently exposes buildGo123Module, buildGo125Module, and
+        # buildGo126Module — there is no buildGo124Module — so we pin to
+        # buildGo125Module as the closest available version that satisfies
+        # the go.mod minimum. Note: passing `go = pkgs.go_1_25` to
+        # pkgs.buildGoModule is ineffective because pkgs.buildGoModule is
+        # aliased to buildGo126Module in nixpkgs and the parameter doesn't
+        # override the underlying alias.
         autonity = pkgs.buildGo125Module {
           pname = "autonity";
           version = autonityVersion;
@@ -47,7 +55,20 @@
             GOTOOLCHAIN = "local";
           };
 
-          nativeBuildInputs = with pkgs; [ gcc ];
+          nativeBuildInputs = with pkgs; [
+            gcc
+            makeWrapper
+          ];
+
+          # Wrap the binary so it finds CA trust roots on non-NixOS systems.
+          # Autonity makes outbound HTTPS connections (bootnodes, RPC clients,
+          # cloud SDKs). Without this, the binary works on NixOS (which exposes
+          # certs at /etc/ssl/certs) but fails on plain Linux distributions.
+          postFixup = ''
+            wrapProgram $out/bin/autonity \
+              --set-default SSL_CERT_FILE ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt \
+              --set-default NIX_SSL_CERT_FILE ${pkgs.cacert}/etc/ssl/certs/ca-bundle.crt
+          '';
 
           # Skip upstream Go tests during Nix build; CI handles them
           doCheck = false;

@@ -63,6 +63,14 @@
 
           subPackages = [ "cmd/autonity" ];
 
+          # Match upstream's Linux release build flags (build/ci.go
+          # buildFlags): enforce 8MB thread stack. Alpine/musl-based
+          # environments default to 128KB which is insufficient for
+          # some Autonity code paths.
+          ldflags = [
+            "-extldflags=-Wl,-z,stack-size=0x800000"
+          ];
+
           env = {
             # CGO required for embedded libsecp256k1 (crypto/secp256k1)
             CGO_ENABLED = "1";
@@ -79,7 +87,7 @@
 
           doInstallCheck = true;
           installCheckPhase = ''
-            $out/bin/autonity version | grep -q "Version: ${autonityVersion}"
+            $out/bin/autonity version | grep -Fxq "Version: ${autonityVersion}"
           '';
 
           meta = commonMeta;

@@ -46,10 +46,11 @@
         # aliased to buildGo126Module in nixpkgs and the parameter doesn't
         # override the underlying alias.
         #
-        # Default (plain ELF): minimal runtime closure, for deployment via
-        # NixOS modules or other environments that set SSL_CERT_FILE /
+        # Default (plain ELF): minimal runtime closure, intended for
+        # deployment via NixOS modules or other environments that provide
+        # CA certificates externally by setting SSL_CERT_FILE /
         # NIX_SSL_CERT_FILE in the service's environment directly. This
-        # matches issue #2's "Runtime: ca-certificates only" constraint.
+        # derivation does not include pkgs.cacert in its runtime closure.
         autonity = pkgs.buildGo125Module {
           pname = "autonity";
           version = autonityVersion;
@@ -116,8 +117,8 @@
           '';
       in
       {
-        # Default: plain ELF binary, minimal runtime closure (cacert only
-        # in the build closure via Go's x/crypto/x509; no bash at runtime).
+        # Default: plain ELF binary with a minimal runtime closure; no bash
+        # wrapper and no implied inclusion of pkgs.cacert at runtime.
         # Intended for NixOS module consumption.
         packages.default = autonity;
         packages.autonity = autonity;

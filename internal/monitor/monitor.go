@@ -212,6 +212,20 @@ func (ms *monitorService) checkSystemState() {
 		log.Error("fetching cpu usage", "error", err)
 		return
 	}
+	// Guard against an empty cpuUsage slice. gopsutil's cpu.Percent is
+	// documented as returning a single-element slice for the aggregate
+	// metric (perCpu=false), but in sandboxed environments with limited
+	// /proc/stat visibility it can return ([], nil). The cpuUsage[0]
+	// access below would otherwise panic with "index out of range [0]
+	// with length 0", which systemd's Restart=on-failure surfaces as a
+	// restart loop on the 60s monitoringInterval cadence. Skipping this
+	// single tick is benign — the next tick will retry, and any threshold
+	// breach we miss will be picked up by the memory and goroutine
+	// signals on subsequent ticks.
+	if len(cpuUsage) == 0 {
+		log.Error("getCPUPercent returned empty slice; skipping this monitoring tick")
+		return
+	}
 
 	thresholdBreach := false
 	m := &runtime.MemStats{}

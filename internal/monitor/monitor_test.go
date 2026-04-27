@@ -273,3 +273,48 @@ func Test_GoroutineThresholdBreach(t *testing.T) {
 
 	ms.Stop()
 }
+
+// Empty CPU sample handling — gopsutil's cpu.Percent can return ([],
+// nil) in sandboxed environments. The monitor must NOT panic on the
+// `cpuUsage[0]` access, AND must continue to check memory and
+// goroutine thresholds (and emit diagnostics on breach) — the empty
+// CPU sample shouldn't disable the rest of the monitor.
+func Test_EmptyCPUSampleStillProcessesMemAndGoroutines(t *testing.T) {
+	mockCPUUsage := func(_ time.Duration, _ bool) ([]float64, error) {
+		return []float64{}, nil // Sandboxed-env behaviour: empty slice, no error.
+	}
+	mockMemUsage := func(stats *runtime.MemStats) {
+		stats.Alloc = DefaultMonitorConfig.memThreshold + 1 // Force a memory breach.
+	}
+	mockGRNum := func() int {
+		return 5 // Below threshold.
+	}
+
+	cfg := DefaultMonitorConfig
+	cfg.monitoringInterval = time.Second * 2
+	cfg.cpuProfilingDuration = time.Second
+	cfg.traceDuration = time.Second
+	cfg.profileDir = os.TempDir() + "/profile_empty_cpu"
+
+	ms := setupService(&cfg)
+	ms.getCPUPercent = mockCPUUsage
+	ms.getMemUsage = mockMemUsage
+	ms.getGoroutinesNum = mockGRNum
+
+	memThresholdBefore := ms.config.memThreshold
+	ms.Start()
+	// Sleep through ≥1 monitoring tick.
+	time.Sleep(ms.config.monitoringInterval * 2)
+	ms.Stop()
+
+	// The memory threshold MUST still have been raised, proving the
+	// memory-check path ran despite the empty CPU sample.
+	require.Greater(t, ms.config.memThreshold, memThresholdBefore,
+		"memory threshold not raised — empty CPU sample appears to have aborted checkSystemState early")
+	// Diagnostics MUST still have been emitted on the breach.
+	require.GreaterOrEqual(t, ms.profileCount, 1,
+		"expected at least one diagnostic dump from the memory-threshold breach")
+	postfix := "_" + strconv.Itoa(ms.profileCount)
+	require.FileExists(t, filepath.Join(cfg.profileDir, ms.lastProfileDate, memDumpFile+postfix),
+		"mem profile doesn't exist — memory-threshold breach didn't trigger collectDiagnostics")
+}

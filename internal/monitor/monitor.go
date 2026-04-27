@@ -240,7 +240,7 @@ func (ms *monitorService) checkSystemState() {
 			thresholdBreach = true
 		}
 	} else {
-		log.Error("getCPUPercent returned empty slice; skipping CPU threshold check this tick")
+		log.Warn("getCPUPercent returned empty slice; skipping CPU threshold check this tick")
 	}
 
 	if thresholdBreach {

@@ -279,6 +279,12 @@ func Test_GoroutineThresholdBreach(t *testing.T) {
 // `cpuUsage[0]` access, AND must continue to check memory and
 // goroutine thresholds (and emit diagnostics on breach) — the empty
 // CPU sample shouldn't disable the rest of the monitor.
+//
+// Calls checkSystemState directly rather than going through Start +
+// Sleep so the test is deterministic (no monitoringInterval-cadence
+// timing dependency under CI load) and runs in well under a second
+// (no cpuProfilingDuration / traceDuration sleeps inside
+// collectDiagnostics — both zeroed below).
 func Test_EmptyCPUSampleStillProcessesMemAndGoroutines(t *testing.T) {
 	mockCPUUsage := func(_ time.Duration, _ bool) ([]float64, error) {
 		return []float64{}, nil // Sandboxed-env behaviour: empty slice, no error.
@@ -291,10 +297,16 @@ func Test_EmptyCPUSampleStillProcessesMemAndGoroutines(t *testing.T) {
 	}
 
 	cfg := DefaultMonitorConfig
-	cfg.monitoringInterval = time.Second * 2
-	cfg.cpuProfilingDuration = time.Second
-	cfg.traceDuration = time.Second
-	cfg.profileDir = os.TempDir() + "/profile_empty_cpu"
+	// Zero the inner profiling/trace sleeps inside collectDiagnostics
+	// (`time.Sleep(0)` is a no-op) so the direct checkSystemState
+	// call returns near-instantaneously rather than waiting on the
+	// 20s + 5s defaults.
+	cfg.cpuProfilingDuration = 0
+	cfg.traceDuration = 0
+	// `t.TempDir()` is auto-cleaned by the testing framework on test
+	// completion — no cross-run interference, no leaked artifacts,
+	// safe under `-parallel`.
+	cfg.profileDir = t.TempDir()
 
 	ms := setupService(&cfg)
 	ms.getCPUPercent = mockCPUUsage
@@ -302,10 +314,9 @@ func Test_EmptyCPUSampleStillProcessesMemAndGoroutines(t *testing.T) {
 	ms.getGoroutinesNum = mockGRNum
 
 	memThresholdBefore := ms.config.memThreshold
-	ms.Start()
-	// Sleep through ≥1 monitoring tick.
-	time.Sleep(ms.config.monitoringInterval * 2)
-	ms.Stop()
+	// Drive a single tick directly. No Start/Stop ceremony, no
+	// timing-window guesswork.
+	ms.checkSystemState()
 
 	// The memory threshold MUST still have been raised, proving the
 	// memory-check path ran despite the empty CPU sample.

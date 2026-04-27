@@ -228,11 +228,19 @@ func (ms *monitorService) checkSystemState() {
 		ms.config.numGoroutines = int(float64(currentGoroutines) * GoroutineScaleFactor)
 		thresholdBreach = true
 	}
-	currentCPU := cpuUsage[0]
-	if currentCPU > ms.config.cpuThreshold {
-		log.Info("system cpu usage is beyond threshold, dumping profiles", "current cpu", currentCPU, "threshold", ms.config.cpuThreshold)
-		ms.config.cpuThreshold = currentCPU * CPUScaleFactor
-		thresholdBreach = true
+	// Guard against an empty cpuUsage slice: cpu.Percent may return an
+	// empty slice in some environments, so we must check before indexing.
+	// Memory and goroutine threshold checks above run regardless — a
+	// missing CPU sample shouldn't disable the rest of the monitor.
+	if len(cpuUsage) > 0 {
+		currentCPU := cpuUsage[0]
+		if currentCPU > ms.config.cpuThreshold {
+			log.Info("system cpu usage is beyond threshold, dumping profiles", "current cpu", currentCPU, "threshold", ms.config.cpuThreshold)
+			ms.config.cpuThreshold = currentCPU * CPUScaleFactor
+			thresholdBreach = true
+		}
+	} else {
+		log.Warn("getCPUPercent returned empty slice; skipping CPU threshold check this tick")
 	}
 
 	if thresholdBreach {
